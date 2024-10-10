@@ -10,6 +10,8 @@
 #include "globals.hpp"
 
 #include <map>
+#include <stdexcept>
+#include <string_view>
 #include <unistd.h>
 #include <vector>
 
@@ -160,35 +162,54 @@ void splitMoveToWorkspaceSilent(const std::string& workspace)
 
 void changeMonitor(bool quiet, const std::string& value)
 {
+    constexpr std::string_view abs_str{" abs"};
+    bool const abs = value.ends_with(abs_str);
+
     CMonitor* monitor = getCurrentMonitor();
 
     CMonitor* nextMonitor = nullptr;
 
     uint64_t monitorCount = g_pCompositor->m_vMonitors.size();
 
-    int const delta = getDelta(value);
-    if (delta == 0) {
-        Debug::log(WARN, "[split-monitor-workspaces] Invalid monitor value: {}", value.c_str());
-        return;
-    }
+    int monitor_index = -1;
 
-    // The index is used instead of the monitorID because using the monitorID won't work if monitors are removed or mirrored
-    // as there would be gaps in the monitorID sequence
-    int currentMonitorIndex = -1;
-    for (size_t i = 0; i < g_pCompositor->m_vMonitors.size(); i++) {
-        if (g_pCompositor->m_vMonitors[i].get() == monitor) {
-            currentMonitorIndex = i;
-            break;
+    if (abs) try
+    {
+        monitor_index = std::stoi(value.substr(0, value.length() - abs_str.length()));
+
+        if (monitor_index > g_pCompositor->m_vMonitors.size())
+        {
+            Debug::log(WARN, "[split-monitor-workspaces] Invalid monitor index: {}", monitor_index);
+            return;
         }
-    }
-    if (currentMonitorIndex == -1) {
-        Debug::log(WARN, "[split-monitor-workspaces] Monitor ID {} not found in monitor list?", monitor->ID);
+    } catch(const std::invalid_argument&)
+    {
+        Debug::log(WARN, "[split-monitor-workspaces] Invalid monitor index: {}", monitor_index);
         return;
+    } else
+    {
+        int const delta = getDelta(value);
+        if (delta == 0) {
+            Debug::log(WARN, "[split-monitor-workspaces] Invalid monitor value: {}", value.c_str());
+            return;
+        }
+        // The index is used instead of the monitorID because using the monitorID won't work if monitors are removed or mirrored
+        // as there would be gaps in the monitorID sequence
+        int currentMonitorIndex = -1;
+        for (size_t i = 0; i < g_pCompositor->m_vMonitors.size(); i++) {
+            if (g_pCompositor->m_vMonitors[i].get() == monitor) {
+                currentMonitorIndex = i;
+                break;
+            }
+        }
+        if (currentMonitorIndex == -1) {
+            Debug::log(WARN, "[split-monitor-workspaces] Monitor ID {} not found in monitor list?", monitor->ID);
+            return;
+        }
+        monitor_index = (monitorCount + currentMonitorIndex + delta) % monitorCount;
     }
 
-    int nextMonitorIndex = (monitorCount + currentMonitorIndex + delta) % monitorCount;
-
-    nextMonitor = g_pCompositor->m_vMonitors[nextMonitorIndex].get();
+    nextMonitor = g_pCompositor->m_vMonitors[monitor_index].get();
 
     int nextWorkspaceID = nextMonitor->activeWorkspace->m_iID;
 
